@@ -1,0 +1,28 @@
+[tool.pyright]
+venvPath = "."
+venv = ".venv"
+
+[tool.uv]
+dev-dependencies = [
+    "pytest>=8.3.5",
+    "pytest-asyncio>=0.26.0",
+    "ipdb>=0.13.13",
+]
+
+[tool.setuptools]
+packages = ["tinybridge"]
+include-package-data = true
+
+[tool.setuptools.package-data]
+tinybridge = ["*.pyi"]
+
+[project]
+name = "tinybridge"
+version = "0.1.0"
+description = "TinyDB bridge implementation for asyncio-based applications"
+readme = "README.md"
+license = { text = "MIT" }
+authors = [{ name = "Anton Petrov", email = "mrprfrm@gmail.com" }]
+requires-python = ">=3.12"
+
+dependencies = ["tinydb", "result"]
