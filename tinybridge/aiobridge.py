@@ -1,12 +1,14 @@
-# DBAdapter Simple Proxy implementation
+# AIOBridge implementation
 
 import asyncio
 import functools
 import weakref
-from typing import Any
+from typing import Any, Callable, Iterable, List, Mapping, Optional, Set, Tuple, Union
 
 from result import Err, Ok, Result
 from tinydb import TinyDB
+from tinydb.queries import QueryLike
+from tinydb.table import Document, Table
 
 
 class AIOBridge:
@@ -22,22 +24,32 @@ class AIOBridge:
 
     tinydb_class = TinyDB
 
-    def __init__(self, path: str, *, timeout: int = 10, **kwargs):
-        """
-        Initialize the AIOBridge.
+    def __init__(self, path: Union[str, None], *, timeout: int = 10, **kwargs):
+        """Initialize AIOBridge.
 
         Args:
-            path (str): Path to the TinyDB JSON file.
-            timeout (int, optional): Timeout in seconds for each DB operation. Defaults to 10.
-            *args: Positional arguments forwarded to TinyDB.
-            **kwargs: Keyword arguments forwarded to TinyDB.
+            path (Union[str, None]): Path to the TinyDB file or None.
+            timeout (int): Operation timeout in seconds.
+            **kwargs: Passed to TinyDB constructor.
         """
-        self._path = path
-        self._timeout = timeout
-        self._db = None
-        self._kwargs = kwargs
-        self._tinydb_class = self._kwargs.pop("tinydb_class", self.tinydb_class)
 
+        # AIOBridge is a proxy over TinyDB, and cannot enforce the exact
+        # constructor signature of a custom TinyDB subclass.
+        #
+        # Some implementations may require a 'path', while others (like in-memory
+        # storage) may not accept it at all.
+        #
+        # To support both cases, 'path' is required but allowed to be None.
+        # If not None, it's passed explicitly to the TinyDB constructor.
+
+        self._timeout = timeout
+
+        if path is not None:
+            kwargs["path"] = path
+        tinydb_class = kwargs.pop("tinydb_class", self.tinydb_class)
+        self._db = tinydb_class(**kwargs)
+
+        path = path or "default"
         if path not in AIOBridge.__locks:
             self.lock = asyncio.Lock()
             AIOBridge.__locks[path] = self.lock
@@ -45,46 +57,131 @@ class AIOBridge:
             self.lock = AIOBridge.__locks[path]
 
     async def __aenter__(self):
-        self._db = self._tinydb_class(self._path, **self._kwargs)
         return self
 
     async def __aexit__(self, exc_type, exc_value, traceback):
         if self._db is not None:
             self._db.close()
 
-    def __getattr__(self, name: str):
-        """
-        Intercept TinyDB method calls and wrap them as async functions.
+    async def __execute(self, op, *args, **kwargs) -> Result[Any, Exception]:
+        """Run a TinyDB operation in a thread-safe, async-safe context."""
 
-        The wrapped methods:
-        - Run in a background thread using `asyncio.to_thread`
-        - Are protected by an `asyncio.Lock` to prevent race conditions
-        - Use a timeout (`self._timeout`)
-        - Return a `Result` object (Ok or Err)
+        # This pattern is chosen over fully dynamic proxying (e.g., __getattr__)
+        # with static type extraction because such approaches introduce
+        # excessive complexity, especially for maintaining proper type hints.
+        #
+        # Instead, explicit method wrapping—combined with this core execution
+        # logic—gives us the best trade-off: clean runtime behavior with full
+        # static typing support and LSP compatibility.
 
-        Args:
-            name (str): The attribute/method name to retrieve from TinyDB.
+        async with self.lock:
+            try:
+                result = await asyncio.wait_for(
+                    asyncio.to_thread(functools.partial(op, *args, **kwargs)),
+                    timeout=self._timeout,
+                )
+                return Ok(result)
+            except Exception as e:
+                return Err(e)
 
-        Returns:
-            Callable: An awaitable proxy method that returns a `Result`.
-        """
-        db_attr = getattr(self._db, name, None)
-        if callable(db_attr):
+    @property
+    def db(self) -> TinyDB:
+        """Return the underlying TinyDB instance."""
+        return self._db
 
-            @functools.wraps(db_attr)
-            async def wrapper(*args, **kwargs) -> Result[Any, Exception]:
-                async with self.lock:
-                    try:
-                        result = await asyncio.wait_for(
-                            asyncio.to_thread(
-                                functools.partial(db_attr, *args, **kwargs)
-                            ),
-                            timeout=self._timeout,
-                        )
-                        return Ok(result)
-                    except Exception as e:
-                        return Err(e)
+    # DB level methods
+    async def table(self, name: str, **kwargs) -> Result[Table, Exception]:
+        """Access or create a table by name."""
+        return await self.__execute(self.db.table, name, **kwargs)
 
-            return wrapper
+    async def tables(self) -> Result[Set[str], Exception]:
+        """Return the set of table names."""
+        return await self.__execute(self.db.tables)
 
-        return db_attr
+    async def drop_tables(self) -> Result[None, Exception]:
+        """Remove all tables."""
+        return await self.__execute(self.db.drop_tables)
+
+    async def drop_table(self, name: str) -> Result[None, Exception]:
+        """Remove a specific table by name."""
+        return await self.__execute(self.db.drop_table, name)
+
+    async def close(self) -> Result[None, Exception]:
+        """Close the database (if not already closed)."""
+        return await self.__execute(self.db.close)
+
+    # Table level methods
+    async def insert(self, document: Mapping) -> Result[int, Exception]:
+        """Insert a single document."""
+        return await self.__execute(self.db.insert, document)
+
+    async def insert_multiple(
+        self, documents: Iterable[Mapping]
+    ) -> Result[List[int], Exception]:
+        """Insert multiple documents."""
+        return await self.__execute(self.db.insert_multiple, documents)
+
+    async def all(self) -> Result[List[Document], Exception]:
+        """Return all documents in the table."""
+        return await self.__execute(self.db.all)
+
+    async def search(self, cond: QueryLike) -> Result[List[Document], Exception]:
+        """Return documents matching the given query."""
+        return await self.__execute(self.db.search, cond)
+
+    async def get(
+        self,
+        cond: Optional[QueryLike] = None,
+        doc_id: Optional[int] = None,
+        doc_ids: Optional[List[int]] = None,
+    ) -> Result[Optional[Union[Document, List[Document]]], Exception]:
+        """Get a document by query, doc_id, or list of IDs."""
+        return await self.__execute(self.db.get, cond, doc_id, doc_ids)
+
+    async def contains(
+        self, cond: Optional[QueryLike] = None, doc_id: Optional[int] = None
+    ) -> Result[bool, Exception]:
+        """Check if a document exists by query or doc_id."""
+        return await self.__execute(self.db.contains, cond, doc_id)
+
+    async def update(
+        self,
+        fields: Union[Mapping, Callable[[Mapping], None]],
+        cond: Optional[QueryLike] = None,
+        doc_ids: Optional[Iterable[int]] = None,
+    ) -> Result[List[int], Exception]:
+        """Update documents by query or doc_ids."""
+        return await self.__execute(self.db.update, fields, cond, doc_ids)
+
+    async def update_multiple(
+        self,
+        updates: Iterable[Tuple[Union[Mapping, Callable[[Mapping], None]], QueryLike]],
+    ) -> Result[List[int], Exception]:
+        """Update multiple document-query pairs."""
+        return await self.__execute(self.db.update_multiple, updates)
+
+    async def upsert(
+        self, document: Mapping, cond: Optional[QueryLike] = None
+    ) -> Result[List[int], Exception]:
+        """Update if match found, insert otherwise."""
+        return await self.__execute(self.db.upsert, document, cond)
+
+    async def remove(
+        self,
+        cond: Optional[QueryLike] = None,
+        doc_ids: Optional[Iterable[int]] = None,
+    ) -> Result[List[int], Exception]:
+        """Remove documents by query or doc_ids."""
+        return await self.__execute(self.db.remove, cond, doc_ids)
+
+    async def truncate(self) -> Result[None, Exception]:
+        """Remove all documents from the table."""
+        return await self.__execute(self.db.truncate)
+
+    async def count(self, cond: QueryLike) -> Result[int, Exception]:
+        """Return the number of documents matching the query."""
+        return await self.__execute(self.db.count, cond)
+
+    async def clear_cache(self) -> Result[None, Exception]:
+        """Clear the query cache."""
+        return await self.__execute(self.db.clear_cache)
