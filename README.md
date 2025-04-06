@@ -1,8 +1,8 @@
 # tinybridge
 
-[TinyDB](https://github.com/msiemens/tinydb) bridge implementation for `asyncio`-based applications.
+TinyDB bridge implementation for `asyncio`-based applications.
 
-**AIOBridge** is an async-safe proxy adapter for TinyDB, inspired by its design and intended for use within `asyncio`-based concurrent tasks. It enables safe and structured interaction with TinyDB from asynchronous Python code.
+**AIOBridge** is an async-safe proxy adapter for [TinyDB](https://github.com/msiemens/tinydb), inspired by its design and intended for use within `asyncio`-based concurrent tasks. It enables safe and structured interaction with TinyDB from asynchronous Python code.
 
 ### Key capabilities
 

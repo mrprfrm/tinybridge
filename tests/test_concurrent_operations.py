@@ -1,10 +1,11 @@
 import asyncio
 import json
-from typing import Any, Callable, List, Optional, Tuple
+from typing import Any, Callable, List, Tuple
 
 import pytest
 from result import Err, Ok, Result
 from tinydb import where
+from tinydb.table import Table
 
 from tinybridge import AIOBridge
 
@@ -36,6 +37,83 @@ def verify_db_file(db_name: str) -> Tuple[bool, str]:
             if "_default" in data
             else (False, f"Key '_default' not found in {db_name}")
         )
+
+
+@pytest.mark.asyncio
+async def test_table(db_name):
+    async with AIOBridge(db_name) as bridge:
+        for result in await run_concurrently(bridge.table, "_default"):
+            match result:
+                case Ok(table):
+                    assert table is not None
+                    assert isinstance(table, Table)
+                case Err(e):
+                    assert False, f"Unexpected error: {e}"
+
+
+@pytest.mark.asyncio
+async def test_tables(db_name, multitable_db):
+    async with AIOBridge(db_name) as bridge:
+        for result in await run_concurrently(bridge.tables):
+            match result:
+                case Ok(tables):
+                    assert isinstance(tables, set)
+                    assert {"_default", "_users"}.issubset(tables)
+                case Err(e):
+                    assert False, f"Unexpected error: {e}"
+
+
+@pytest.mark.asyncio
+async def test_drop_tables(db_name, multitable_db):
+    async with AIOBridge(db_name) as bridge:
+        for result in await run_concurrently(bridge.drop_tables):
+            match result:
+                case Ok(result):
+                    assert result is None
+                case Err(e):
+                    assert False, f"Unexpected error: {e}"
+        with open(db_name, "r") as file:
+            data = json.load(file)
+            assert "_default" not in data
+            assert "_users" not in data
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "table_name",
+    [
+        "_default",
+        "_users",
+    ],
+)
+async def test_drop_table(db_name, multitable_db, table_name):
+    async with AIOBridge(db_name) as bridge:
+        for result in await run_concurrently(bridge.drop_table, table_name):
+            match result:
+                case Ok(result):
+                    assert result is None
+                case Err(e):
+                    assert False, f"Unexpected error: {e}"
+        with open(db_name, "r") as file:
+            data = json.load(file)
+            assert table_name not in data
+
+
+@pytest.mark.asyncio
+async def test_close(db_name, default_db):
+    async with AIOBridge(db_name) as bridge:
+        match await bridge.close():
+            case Ok(result):
+                assert result is None
+            case Err(e):
+                assert False, f"Unexpected error: {e}"
+
+        for result in await run_concurrently(bridge.insert, {"name": "Jane"}):
+            match result:
+                case Ok(result):
+                    assert False, "Expected an error when using a closed bridge"
+                case Err(e):
+                    assert isinstance(e, ValueError)
 
 
 @pytest.mark.asyncio
@@ -82,7 +160,7 @@ async def test_insert_multiple(db_name, data):
 
 
 @pytest.mark.asyncio
-async def test_all(db_name, default_table):
+async def test_all(db_name, default_db):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.all):
             match result:
@@ -103,7 +181,7 @@ async def test_all(db_name, default_table):
         (where("name") == "Bob", 0),
     ],
 )
-async def test_search(db_name, default_table, query, expected):
+async def test_search(db_name, default_db, query, expected):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.search, query):
             match result:
@@ -127,7 +205,7 @@ async def test_search(db_name, default_table, query, expected):
         (where("name") == "Bob", None),
     ],
 )
-async def test_get(db_name, default_table, query, expected):
+async def test_get(db_name, default_db, query, expected):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.get, query):
             match result:
@@ -147,7 +225,7 @@ async def test_get(db_name, default_table, query, expected):
         (where("name") == "Bob", False),
     ],
 )
-async def test_contains(db_name, default_table, query, expected):
+async def test_contains(db_name, default_db, query, expected):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.contains, query):
             match result:
@@ -168,7 +246,7 @@ async def test_contains(db_name, default_table, query, expected):
         ({"status": "none"}, where("name") == "Bob", []),
     ],
 )
-async def test_update(db_name, default_table, update_data, query, expected):
+async def test_update(db_name, default_db, update_data, query, expected):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.update, update_data, query):
             match result:
@@ -200,7 +278,7 @@ async def test_update(db_name, default_table, update_data, query, expected):
         ),
     ],
 )
-async def test_update_multiple(db_name, default_table, query, expected):
+async def test_update_multiple(db_name, default_db, query, expected):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.update_multiple, query):
             match result:
@@ -221,7 +299,7 @@ async def test_update_multiple(db_name, default_table, query, expected):
         ({"name": "Bob", "status": "new"}, where("name") == "Bob", [4]),
     ],
 )
-async def test_upsert(db_name, default_table, data, query, expected):
+async def test_upsert(db_name, default_db, data, query, expected):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.upsert, data, query):
             match result:
@@ -242,7 +320,7 @@ async def test_upsert(db_name, default_table, data, query, expected):
         (where("name") == "Bob", []),
     ],
 )
-async def test_remove(db_name, default_table, query, expected):
+async def test_remove(db_name, default_db, query, expected):
     async with AIOBridge(db_name) as bridge:
         for i, result in enumerate(await run_concurrently(bridge.remove, query)):
             if i == 0:
@@ -265,7 +343,7 @@ async def test_remove(db_name, default_table, query, expected):
 
 
 @pytest.mark.asyncio
-async def test_truncate(db_name, default_table):
+async def test_truncate(db_name, default_db):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.truncate):
             match result:
@@ -278,7 +356,7 @@ async def test_truncate(db_name, default_table):
 
 
 @pytest.mark.asyncio
-async def test_count(db_name, default_table):
+async def test_count(db_name, default_db):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.count, where("active") == True):
             match result:
@@ -292,7 +370,7 @@ async def test_count(db_name, default_table):
 
 
 @pytest.mark.asyncio
-async def test_clear_cache(db_name, default_table):
+async def test_clear_cache(db_name, default_db):
     async with AIOBridge(db_name) as bridge:
         for result in await run_concurrently(bridge.clear_cache):
             match result:
