@@ -3,12 +3,26 @@
 import asyncio
 import functools
 import weakref
-from typing import Any, Callable, Iterable, List, Mapping, Optional, Set, Tuple, Union
+from typing import (
+    Callable,
+    Hashable,
+    Iterable,
+    List,
+    Mapping,
+    Optional,
+    Sequence,
+    Set,
+    Tuple,
+    TypeVar,
+    Union,
+)
 
 from result import Err, Ok, Result
 from tinydb import TinyDB
 from tinydb.queries import QueryLike
 from tinydb.table import Document, Table
+
+T = TypeVar("T")
 
 
 class AIOBridge:
@@ -30,6 +44,7 @@ class AIOBridge:
         Args:
             path (Union[str, None]): Path to the TinyDB file or None.
             timeout (int): Operation timeout in seconds.
+            tinydb_class (Type[TinyDB], optional): Custom TinyDB class to use (e.g., in-memory).
             **kwargs: Passed to TinyDB constructor.
         """
 
@@ -63,7 +78,9 @@ class AIOBridge:
         if self._db is not None:
             self._db.close()
 
-    async def __execute(self, op, *args, **kwargs) -> Result[Any, Exception]:
+    async def __execute(
+        self, op: Callable[..., T], *args, **kwargs
+    ) -> Result[T, Exception]:
         """Run a TinyDB operation in a thread-safe, async-safe context."""
 
         # This pattern is chosen over fully dynamic proxying (e.g., __getattr__)
@@ -86,7 +103,7 @@ class AIOBridge:
 
     @property
     def db(self) -> TinyDB:
-        """Return the underlying TinyDB instance."""
+        """Return the underlying `TinyDB` instance."""
         return self._db
 
     # DB level methods
@@ -111,13 +128,13 @@ class AIOBridge:
         return await self.__execute(self.db.close)
 
     # Table level methods
-    async def insert(self, document: Mapping) -> Result[int, Exception]:
+    async def insert(self, document: Mapping) -> Result[Hashable, Exception]:
         """Insert a single document."""
         return await self.__execute(self.db.insert, document)
 
     async def insert_multiple(
         self, documents: Iterable[Mapping]
-    ) -> Result[List[int], Exception]:
+    ) -> Result[Sequence[Hashable], Exception]:
         """Insert multiple documents."""
         return await self.__execute(self.db.insert_multiple, documents)
 
@@ -132,46 +149,46 @@ class AIOBridge:
     async def get(
         self,
         cond: Optional[QueryLike] = None,
-        doc_id: Optional[int] = None,
-        doc_ids: Optional[List[int]] = None,
+        doc_id: Optional[Hashable] = None,
+        doc_ids: Optional[List[Hashable]] = None,
     ) -> Result[Optional[Union[Document, List[Document]]], Exception]:
-        """Get a document by query, doc_id, or list of IDs."""
+        """Get a document by query, `doc_id`, or list of IDs."""
         return await self.__execute(self.db.get, cond, doc_id, doc_ids)
 
     async def contains(
-        self, cond: Optional[QueryLike] = None, doc_id: Optional[int] = None
+        self, cond: Optional[QueryLike] = None, doc_id: Optional[Hashable] = None
     ) -> Result[bool, Exception]:
-        """Check if a document exists by query or doc_id."""
+        """Check if a document exists by query or `doc_id`."""
         return await self.__execute(self.db.contains, cond, doc_id)
 
     async def update(
         self,
         fields: Union[Mapping, Callable[[Mapping], None]],
         cond: Optional[QueryLike] = None,
-        doc_ids: Optional[Iterable[int]] = None,
-    ) -> Result[List[int], Exception]:
-        """Update documents by query or doc_ids."""
+        doc_ids: Optional[Iterable[Hashable]] = None,
+    ) -> Result[Sequence[Hashable], Exception]:
+        """Update documents by query or `doc_ids`."""
         return await self.__execute(self.db.update, fields, cond, doc_ids)
 
     async def update_multiple(
         self,
         updates: Iterable[Tuple[Union[Mapping, Callable[[Mapping], None]], QueryLike]],
-    ) -> Result[List[int], Exception]:
+    ) -> Result[Sequence[Hashable], Exception]:
         """Update multiple document-query pairs."""
         return await self.__execute(self.db.update_multiple, updates)
 
     async def upsert(
         self, document: Mapping, cond: Optional[QueryLike] = None
-    ) -> Result[List[int], Exception]:
+    ) -> Result[Sequence[Hashable], Exception]:
         """Update if match found, insert otherwise."""
         return await self.__execute(self.db.upsert, document, cond)
 
     async def remove(
         self,
         cond: Optional[QueryLike] = None,
-        doc_ids: Optional[Iterable[int]] = None,
-    ) -> Result[List[int], Exception]:
-        """Remove documents by query or doc_ids."""
+        doc_ids: Optional[Iterable[Hashable]] = None,
+    ) -> Result[Sequence[Hashable], Exception]:
+        """Remove documents by query or `doc_ids`."""
         return await self.__execute(self.db.remove, cond, doc_ids)
 
     async def truncate(self) -> Result[None, Exception]:

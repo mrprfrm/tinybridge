@@ -18,11 +18,26 @@ tinybridge = ["*.pyi"]
 
 [project]
 name = "tinybridge"
-version = "0.1.0"
+version = "0.1.1"
 description = "TinyDB bridge implementation for asyncio-based applications"
 readme = "README.md"
-license = { text = "MIT" }
-authors = [{ name = "Anton Petrov", email = "mrprfrm@gmail.com" }]
-requires-python = ">=3.12"
-
+license = "MIT"
+authors = [
+  { name = "Anton Petrov", email = "mrprfrm@gmail.com" },
+]
+requires-python = ">=3.9"
+classifiers = [
+    "Topic :: Database",
+    "Programming Language :: Python :: 3",
+    "Intended Audience :: Developers",
+    "Typing :: Typed",
+]
+license-files = ["LICEN[CS]E*"]
 dependencies = ["tinydb", "result"]
+
+[project.urls]
+Homepage = "https://github.com/mrprfrm/tinybridge"
+
+[build-system]
+requires = ["hatchling >= 1.26"]
+build-backend = "hatchling.build"
