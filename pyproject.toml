@@ -11,7 +11,7 @@ dev-dependencies = [
 
 [project]
 name = "tinybridge"
-version = "0.1.3"
+version = "0.1.4"
 description = "TinyDB bridge implementation for asyncio-based applications"
 readme = "README.md"
 license = "MIT"

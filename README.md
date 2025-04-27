@@ -1,4 +1,4 @@
-<img src="https://github.com/user-attachments/assets/48b13c90-92c8-4fd0-8f15-581ff5f4bd62" alt="Alt Text" height="450">
+<img src="https://github.com/user-attachments/assets/48b13c90-92c8-4fd0-8f15-581ff5f4bd62" alt="Alt Text" max-height="450">
 
 # tinybridge
 
